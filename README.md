@@ -4,5 +4,5 @@ Features:
 Masses, Springs, Gravity, Collision
 
 In development:
-Circles of different sizes with weighted collision
+Objects of different sizes with weighted collisions
 Rigid and soft bodies
