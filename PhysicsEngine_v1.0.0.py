@@ -6,25 +6,25 @@ import random
 # 1 seconds in nanoseconds
 SECOND_IN_NS = 1000000000
 FRAMES_PER_SECOND = 30.0
+FRAMES_PER_SECOND_INVERTED = 1.0 / FRAMES_PER_SECOND
 # Update rate in nanoseconds
 UPDATE_RATE_NS = SECOND_IN_NS / FRAMES_PER_SECOND
-UPDATES_RATE_PER_SECOND = SECOND_IN_NS / UPDATE_RATE_NS
 # Sleep for 1/10th the update rate
 SLEEP_TIME_S = 1.0 / (UPDATE_RATE_NS * 10.0)
 
-NUMBER_BALLS = 100
+NUMBER_BALLS = 20
 
-GRAVITY_ACCELERATION = -9.81
-GRAVITY_ACCELERATION_PER_TICK = GRAVITY_ACCELERATION / UPDATES_RATE_PER_SECOND
+GRAVITY_ACCELERATION = -98.1
 CEILING_SPRING_CONSTANT = 100.0
 GROUND_HEIGHT = 50.0
-CLICK_SPRING_CONSTANT = 500.0
+CLICK_SPRING_CONSTANT = 1000.0
 ROLLING_FRICTION_COEFFICIENT = 0.99
-ROLLING_FRICTION_COEFFICIENT_PER_SECOND = ROLLING_FRICTION_COEFFICIENT / UPDATES_RATE_PER_SECOND
+ROLLING_FRICTION_COEFFICIENT_PER_SECOND = ROLLING_FRICTION_COEFFICIENT / FRAMES_PER_SECOND
+BALL_DENSITY = 0.01
 
 GRAVITY_ENABLED = True
 SPRING_ENABLED = False
-AIR_FRICTION_ENABLED = True
+AIR_FRICTION_ENABLED = False
 
 SPRING_X = 150
 SPRING_Y = 300
@@ -34,11 +34,12 @@ MAX_X = 1200.0
 MIN_Y = 0.0
 MAX_Y = 800.0
 
-BALL_STARTS = [(random.randrange(int(MAX_X)), random.randrange(int(MAX_Y))) for i in range(NUMBER_BALLS)]
 BALLS = []
 BALL_MIN_RADIUS = 10
-BALL_MAX_RADIUS = 20
+BALL_MAX_RADIUS = 40
+BALL_STARTS = [(random.randrange(int(MAX_X - BALL_MAX_RADIUS)), random.randrange(int(MAX_Y - BALL_MAX_RADIUS))) for i in range(NUMBER_BALLS)]
 BALL_COLORS = ["white", "red", "green", "blue", "yellow", "orange", "purple", "black", "cyan", "magenta"]
+BALL_START_SPEED_MAX = 1.0
 
 # globals
 run = True
@@ -77,13 +78,19 @@ def main():
     canvas.bind("<Button-1>", click)
     canvas.bind("<ButtonRelease-1>", click_release)
 
-    fps_text = canvas.create_text(50, 10, fill="darkblue", font="Times 11 italic bold", text="FPS:")
+    fps_text = canvas.create_text(10, 5, fill="darkblue", font="Times 11 italic bold", anchor=tkinter.NW, text="FPS:")
+    debug_text_1 = canvas.create_text(10, 19, fill="darkblue", font="Times 11 italic bold", anchor=tkinter.NW, text="")
+    debug_text_2 = canvas.create_text(10, 33, fill="darkblue", font="Times 11 italic bold", anchor=tkinter.NW, text="")
+    debug_text_3 = canvas.create_text(10, 47, fill="darkblue", font="Times 11 italic bold", anchor=tkinter.NW, text="")
 
-    for ball_x, ball_y in BALL_STARTS:
+    for i, (ball_x, ball_y) in enumerate(BALL_STARTS):
         color = BALL_COLORS[random.randrange(len(BALL_COLORS))]
         radius = ((BALL_MAX_RADIUS - BALL_MIN_RADIUS) * random.random()) + BALL_MIN_RADIUS
+        x_velocity = random.uniform(0.0, BALL_START_SPEED_MAX)
+        y_velocity = random.uniform(0.0, BALL_START_SPEED_MAX)
         BALLS.append([canvas.create_oval(ball_x - radius, MAX_Y - (ball_y - radius),
-                                         ball_x + radius, MAX_Y - (ball_y + radius), fill=color), 0.0, 0.0, radius])
+                                         ball_x + radius, MAX_Y - (ball_y + radius), fill=color),
+                      x_velocity, y_velocity, radius])
 
     # add to window and show
     canvas.pack()
@@ -94,91 +101,160 @@ def main():
     frames = 0
 
     while run:
+        # Update ball velocities for gravity, springs, and friction
         for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
             ball_x, ball_y = ball_center(canvas.coords(ball))
-            ball_mass = math.pi * radius * radius
+            ball_volume = (4.0 / 3.0) * math.pi * radius * radius * radius
+            ball_mass = ball_volume * BALL_DENSITY
 
-            # print("Ball {0} center x {1} y {2}".format(index, ball_x, ball_y))
+            # print("{0}: x {1}, y {2}, x velocity {3}, y velocity {4}".format(index, ball_x, ball_y, x_velocity, y_velocity))
 
             if GRAVITY_ENABLED:
-                y_velocity += GRAVITY_ACCELERATION_PER_TICK
+                y_velocity += GRAVITY_ACCELERATION / FRAMES_PER_SECOND
             if SPRING_ENABLED:
                 spring_distance = euclidean_distance(ball_x, ball_y, SPRING_X, SPRING_Y)
-                spring_acceleration = ((CEILING_SPRING_CONSTANT * spring_distance) / ball_mass) / UPDATES_RATE_PER_SECOND
+                spring_acceleration = ((CEILING_SPRING_CONSTANT * spring_distance) / ball_mass)
                 spring_angle_radians = angle_horizon(ball_x, ball_y, SPRING_X, SPRING_Y)
                 spring_acceleration_x = spring_acceleration * math.cos(spring_angle_radians)
                 spring_acceleration_y = spring_acceleration * math.sin(spring_angle_radians)
 
-                x_velocity += spring_acceleration_x
-                y_velocity += spring_acceleration_y
+                x_velocity += spring_acceleration_x / FRAMES_PER_SECOND
+                y_velocity += spring_acceleration_y / FRAMES_PER_SECOND
 
             global Clicked, ClickLocationX, ClickLocationY
             if Clicked:
                 click_distance = euclidean_distance(ball_x, ball_y, ClickLocationX, ClickLocationY)
-                click_acceleration = ((CLICK_SPRING_CONSTANT * click_distance) / ball_mass) / UPDATES_RATE_PER_SECOND
+                click_acceleration = ((CLICK_SPRING_CONSTANT * click_distance) / ball_mass)
                 click_angle_radians = angle_horizon(ClickLocationX, ClickLocationY, ball_x, ball_y)
                 click_acceleration_x = click_acceleration * math.cos(click_angle_radians)
                 click_acceleration_y = click_acceleration * math.sin(click_angle_radians)
 
-                x_velocity -= click_acceleration_x
-                y_velocity -= click_acceleration_y
+                x_velocity -= click_acceleration_x / FRAMES_PER_SECOND
+                y_velocity -= click_acceleration_y / FRAMES_PER_SECOND
 
             # Apply friction
             if AIR_FRICTION_ENABLED:
                 x_velocity -= x_velocity * ROLLING_FRICTION_COEFFICIENT_PER_SECOND
                 y_velocity -= y_velocity * ROLLING_FRICTION_COEFFICIENT_PER_SECOND
 
-            # check if ball will be outside boundaries
-            # if crossing boundary, bounce by inverting and losing some velocity
-            proposed_ball_y = ball_y + y_velocity
-            proposed_ball_x = ball_x + x_velocity
-
-            # ball collision checking           O(N^2)!!!!!!
-            for other_index, (other_ball, other_x_velocity, other_y_velocity, other_radius) in enumerate(BALLS):
-                if other_index > index:
-                    other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
-                    other_ball_mass = math.pi * other_radius * other_radius
-                    combined_radii = radius + other_radius
-                    if abs(proposed_ball_x - other_ball_x) < combined_radii or abs(proposed_ball_y - other_ball_y) < combined_radii:
-                        if euclidean_distance(proposed_ball_x, proposed_ball_y, other_ball_x, other_ball_y) < combined_radii:
-                            # print("Collision! Balls {0} and {1} collided at X {2} Y {3}, other X {4} Y {5}".format(index, other_index, proposed_ball_x, proposed_ball_y, other_ball_x, other_ball_y))
-
-                            tangent_vector_x = ball_y - other_ball_y
-                            tangent_vector_y = -(ball_x - other_ball_x)
-                            tangent_vector_magnitude = euclidean_distance(0, 0, tangent_vector_x, tangent_vector_y)
-                            tangent_vector_normalized = [tangent_vector_x / tangent_vector_magnitude, tangent_vector_y / tangent_vector_magnitude]
-                            relative_velocity = [x_velocity - other_x_velocity, y_velocity - other_y_velocity]
-                            # print("Tangent vector {0} {1}, magnitude {2}".format(tangent_vector_x, tangent_vector_y, tangent_vector_magnitude))
-
-                            dot_product = sum([i*j for (i, j) in zip(tangent_vector_normalized, relative_velocity)])
-                            velocity_component_on_tangent = [component * dot_product for component in tangent_vector_normalized]
-                            velocity_component_perpendicular_to_tangent = [i-j for (i, j) in zip(relative_velocity, velocity_component_on_tangent)]
-
-                            weight_ratio = ball_mass / other_ball_mass
-                            weight_ratio_inverted = 1.0 / weight_ratio
-
-                            x_velocity -= velocity_component_perpendicular_to_tangent[0] / weight_ratio
-                            y_velocity -= velocity_component_perpendicular_to_tangent[1] / weight_ratio
-
-                            BALLS[other_index][1] += velocity_component_perpendicular_to_tangent[0] / weight_ratio_inverted
-                            BALLS[other_index][2] += velocity_component_perpendicular_to_tangent[1] / weight_ratio_inverted
-
-            proposed_ball_y = ball_y + y_velocity
-            proposed_ball_x = ball_x + x_velocity
-
-            if ball_x > MIN_X + radius >= proposed_ball_x:
-                x_velocity *= -0.8
-            elif ball_x < MAX_X - radius < proposed_ball_x:
-                x_velocity *= -0.8
-            if ball_y > MIN_Y + radius > proposed_ball_y:
-                y_velocity *= -0.8
-            elif ball_y < MAX_Y - radius < proposed_ball_y:
-                y_velocity *= -0.8
-
-            move_ball(canvas, ball, x_velocity, y_velocity)
             BALLS[index][1] = x_velocity
             BALLS[index][2] = y_velocity
-        
+
+        collision_time = 0.0
+
+        # While there are collisions to resolve, resolve them 1 by 1 by:
+        # 1) Find time of first collision t1
+        # 2) Move all balls for time t1
+        # 3) Update velocities for the balls that just collided
+        while collision_time < FRAMES_PER_SECOND_INVERTED:
+            earliest_collision_time = float('inf')
+            earliest_collision_indices = [-1, -1]
+
+            # 1) Find time of first collision
+            for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
+                ball_x, ball_y = ball_center(canvas.coords(ball))
+                for other_index, (other_ball, other_x_velocity, other_y_velocity, other_radius) in enumerate(BALLS):
+                    if index < other_index:
+                        other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
+                        combined_radii = radius + other_radius
+
+                        p = (ball_x, ball_y)
+                        d = ((x_velocity - other_x_velocity) * FRAMES_PER_SECOND_INVERTED, (y_velocity - other_y_velocity) * FRAMES_PER_SECOND_INVERTED)
+                        q = (other_ball_x, other_ball_y)
+                        r = combined_radii
+
+                        d_dot_d = sum([i * j for (i, j) in zip(d, d)])
+                        d_dot_p = sum([i * j for (i, j) in zip(d, p)])
+                        d_dot_q = sum([i * j for (i, j) in zip(d, q)])
+                        p_dot_p = sum([i * j for (i, j) in zip(p, p)])
+                        q_dot_q = sum([i * j for (i, j) in zip(q, q)])
+                        p_dot_q = sum([i * j for (i, j) in zip(p, q)])
+
+                        a = d_dot_d
+                        b = 2.0 * (d_dot_p - d_dot_q)
+                        c = p_dot_p + q_dot_q - (2.0 * p_dot_q) - pow(r, 2)
+                        v_4ac = 4.0 * a * c
+
+                        # canvas.itemconfig(debug_text_1, text="{0}".format("circle {0}".format(index)))
+
+                        # if b^2 < 4ac there is no solution
+                        if pow(b, 2) >= v_4ac:
+                            # if t_minus is in interval [0, 1] there will be a collision
+                            time_of_collision = ((b * -1.0) - math.sqrt(pow(b, 2) - v_4ac)) / (2.0 * a)
+                            # canvas.itemconfig(debug_text_2, text="toc {0}".format(time_of_collision))
+                            if 0.0 <= time_of_collision <= 1.0:
+                                if time_of_collision < earliest_collision_time:
+                                    earliest_collision_time = time_of_collision
+                                    earliest_collision_indices = (index, other_index)
+                                    print("Found collision {0} and {1} at time {2}".format(index, other_index, earliest_collision_time))
+
+            if earliest_collision_indices[0] == -1 and earliest_collision_indices[1] == -1:
+                earliest_collision_time = FRAMES_PER_SECOND_INVERTED - collision_time
+            else:
+                earliest_collision_time *= FRAMES_PER_SECOND_INVERTED - collision_time
+            collision_time += earliest_collision_time
+
+            # 2) Move all balls for time t1
+            for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
+                ball_x, ball_y = ball_center(canvas.coords(ball))
+                delta_x = x_velocity * earliest_collision_time
+                delta_y = y_velocity * earliest_collision_time
+
+                proposed_ball_x = ball_x + delta_x
+                proposed_ball_y = ball_y + delta_y
+
+                if MIN_X + radius > proposed_ball_x:
+                    x_velocity *= -0.8
+                elif MAX_X - radius < proposed_ball_x:
+                    x_velocity *= -0.8
+                if MIN_Y + radius > proposed_ball_y:
+                    y_velocity *= -0.8
+                elif MAX_Y - radius < proposed_ball_y:
+                    y_velocity *= -0.8
+
+                move_ball(canvas, ball, x_velocity * earliest_collision_time, y_velocity * earliest_collision_time)
+                BALLS[index][1] = x_velocity
+                BALLS[index][2] = y_velocity
+
+            index = earliest_collision_indices[0]
+            other_index = earliest_collision_indices[1]
+
+            # 3) Update velocities for the balls that just collided
+            if index != -1 and other_index != -1:
+                ball, x_velocity, y_velocity, radius = BALLS[index]
+                ball_x, ball_y = ball_center(canvas.coords(ball))
+                ball_mass = math.pi * radius * radius
+                other_ball, other_x_velocity, other_y_velocity, other_radius = BALLS[other_index]
+                other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
+                other_ball_mass = math.pi * other_radius * other_radius
+
+                tangent_vector_x = ball_y - other_ball_y
+                tangent_vector_y = -(ball_x - other_ball_x)
+                tangent_vector_magnitude = euclidean_distance(0, 0, tangent_vector_x, tangent_vector_y)
+                tangent_vector_normalized = [tangent_vector_x / tangent_vector_magnitude, tangent_vector_y / tangent_vector_magnitude]
+                relative_velocity = [x_velocity - other_x_velocity, y_velocity - other_y_velocity]
+
+                dot_product = sum([i*j for (i, j) in zip(tangent_vector_normalized, relative_velocity)])
+                velocity_component_on_tangent = [component * dot_product for component in tangent_vector_normalized]
+                velocity_component_perpendicular_to_tangent = [i-j for (i, j) in zip(relative_velocity, velocity_component_on_tangent)]
+
+                # weight_ratio = ball_mass / other_ball_mass
+                # weight_ratio_inverted = 1.0 / (weight_ratio * FRAMES_PER_SECOND)
+
+                BALLS[index][1] -= velocity_component_perpendicular_to_tangent[0]
+                BALLS[index][2] -= velocity_component_perpendicular_to_tangent[1]
+
+                print("\tx velocity -= {0}".format(velocity_component_perpendicular_to_tangent[0]))
+                print("\ty velocity -= {0}".format(velocity_component_perpendicular_to_tangent[1]))
+
+                BALLS[other_index][1] += velocity_component_perpendicular_to_tangent[0]
+                BALLS[other_index][2] += velocity_component_perpendicular_to_tangent[1]
+
+                print("\tother x velocity += {0}".format(velocity_component_perpendicular_to_tangent[0]))
+                print("\tother y velocity += {0}".format(velocity_component_perpendicular_to_tangent[1]))
+
+                canvas.update()
+
         canvas.update()
 
         current_time = time.time_ns()
