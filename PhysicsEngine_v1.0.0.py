@@ -12,8 +12,6 @@ UPDATE_RATE_NS = SECOND_IN_NS / FRAMES_PER_SECOND
 # Sleep for 1/10th the update rate
 SLEEP_TIME_S = 1.0 / (UPDATE_RATE_NS * 10.0)
 
-NUMBER_BALLS = 20
-
 GRAVITY_ACCELERATION = -9.81 * 40.0
 CEILING_SPRING_CONSTANT = 100.0
 GROUND_HEIGHT = 50.0
@@ -34,12 +32,7 @@ MAX_X = 1200.0
 MIN_Y = 0.0
 MAX_Y = 800.0
 
-BALLS = []
-BALL_MIN_RADIUS = 10
-BALL_MAX_RADIUS = 40
-BALL_STARTS = [(random.randrange(int(MAX_X - BALL_MAX_RADIUS)), random.randrange(int(MAX_Y - BALL_MAX_RADIUS))) for i in range(NUMBER_BALLS)]
-BALL_COLORS = ["white", "red", "green", "blue", "yellow", "orange", "purple", "black", "cyan", "magenta"]
-BALL_START_SPEED_MAX = 1.0
+NUMBER_BALLS = 50
 
 # globals
 run = True
@@ -47,6 +40,62 @@ Clicked = False
 ClickLocationX = 0
 ClickLocationY = 0
 
+
+def move_ball(canvas, ball, x_velocity, y_velocity):
+    canvas.move(ball, x_velocity, -y_velocity)
+
+
+def ball_center(my_tuple):
+    x_left, y_up, x_right, y_down = my_tuple
+    return (x_left + x_right) / 2, MAX_Y - ((y_up + y_down) / 2)
+
+
+def euclidean_distance(x1, y1, x2, y2):
+    return math.sqrt(pow(x2-x1, 2) + pow(y2-y1, 2))
+
+
+def angle_horizon(x1, y1, x2, y2):
+    return math.atan2(y2 - y1, x2 - x1)
+
+
+def create_ball_starts():
+    ball_starts = []
+    for i in range(0, NUMBER_BALLS):
+        x, y, radius = create_ball_start()
+        collision = True
+        while collision:
+            collision = check_collision(x, y, radius, ball_starts)
+            if collision:
+                x, y, radius = create_ball_start()
+
+        assert collision is False
+
+        ball_starts.append((x, y, radius))
+    return ball_starts
+
+
+def check_collision(ball_x, ball_y, ball_radius, ball_starts):
+    collision = False
+    for index, (other_x, other_y, other_radius) in enumerate(ball_starts):
+        distance = euclidean_distance(ball_x, ball_y, other_x, other_y)
+        if distance < ball_radius + other_radius:
+            collision = True
+    return collision
+
+
+def create_ball_start():
+    x = random.randrange(int(0 + BALL_MAX_RADIUS), int(MAX_X - BALL_MAX_RADIUS))
+    y = random.randrange(int(0 + BALL_MAX_RADIUS), int(MAX_Y - BALL_MAX_RADIUS))
+    radius = ((BALL_MAX_RADIUS - BALL_MIN_RADIUS) * random.random()) + BALL_MIN_RADIUS
+    return x, y, radius
+
+
+BALLS = []
+BALL_MIN_RADIUS = 10
+BALL_MAX_RADIUS = 40
+BALL_STARTS = create_ball_starts()
+BALL_COLORS = ["white", "red", "green", "blue", "yellow", "orange", "purple", "black", "cyan", "magenta"]
+BALL_START_SPEED_MAX = 1.0
 
 def click(event):
     global Clicked, ClickLocationX, ClickLocationY
@@ -83,14 +132,13 @@ def main():
     debug_text_2 = canvas.create_text(10, 33, fill="darkblue", font="Times 11 italic bold", anchor=tkinter.NW, text="")
     debug_text_3 = canvas.create_text(10, 47, fill="darkblue", font="Times 11 italic bold", anchor=tkinter.NW, text="")
 
-    for i, (ball_x, ball_y) in enumerate(BALL_STARTS):
+    for i, (ball_x, ball_y, ball_radius) in enumerate(BALL_STARTS):
         color = BALL_COLORS[random.randrange(len(BALL_COLORS))]
-        radius = ((BALL_MAX_RADIUS - BALL_MIN_RADIUS) * random.random()) + BALL_MIN_RADIUS
         x_velocity = random.uniform(0.0, BALL_START_SPEED_MAX)
         y_velocity = random.uniform(0.0, BALL_START_SPEED_MAX)
-        BALLS.append([canvas.create_oval(ball_x - radius, MAX_Y - (ball_y - radius),
-                                         ball_x + radius, MAX_Y - (ball_y + radius), fill=color),
-                      x_velocity, y_velocity, radius])
+        BALLS.append([canvas.create_oval(ball_x - ball_radius, MAX_Y - (ball_y - ball_radius),
+                                         ball_x + ball_radius, MAX_Y - (ball_y + ball_radius), fill=color),
+                      x_velocity, y_velocity, ball_radius])
 
     # add to window and show
     canvas.pack()
@@ -99,6 +147,7 @@ def main():
     next_tick = current_time + UPDATE_RATE_NS
     next_second = current_time + SECOND_IN_NS
     frames = 0
+    sqrts = 0
 
     while run:
         # Update ball velocities for gravity, springs, and friction
@@ -110,6 +159,7 @@ def main():
             if GRAVITY_ENABLED:
                 y_velocity += GRAVITY_ACCELERATION / FRAMES_PER_SECOND
             if SPRING_ENABLED:
+                sqrts += 1
                 spring_distance = euclidean_distance(ball_x, ball_y, SPRING_X, SPRING_Y)
                 spring_force = ((CEILING_SPRING_CONSTANT * spring_distance) / ball_mass)
                 spring_angle_radians = angle_horizon(ball_x, ball_y, SPRING_X, SPRING_Y)
@@ -121,6 +171,7 @@ def main():
 
             global Clicked, ClickLocationX, ClickLocationY
             if Clicked:
+                sqrts += 1
                 click_distance = euclidean_distance(ball_x, ball_y, ClickLocationX, ClickLocationY)
                 click_force = ((CLICK_SPRING_CONSTANT * click_distance) / ball_mass)
                 click_angle_radians = angle_horizon(ClickLocationX, ClickLocationY, ball_x, ball_y)
@@ -210,6 +261,7 @@ def main():
 
                         # if b^2 < 4ac there is no solution
                         if pow(b, 2) >= v_4ac:
+                            sqrts += 1
                             time_of_collision = ((b * -1.0) - math.sqrt(pow(b, 2) - v_4ac)) / (2.0 * a)
                             # if time_of_collision is in interval [0, 1] there will be a collision
                             if 0.0 <= time_of_collision <= 1.0:
@@ -240,13 +292,16 @@ def main():
             if earliest_collision_type == "BALL":
                 ball, x_velocity, y_velocity, radius = BALLS[index]
                 ball_x, ball_y = ball_center(canvas.coords(ball))
-                ball_mass = math.pi * radius * radius
+                ball_volume = (4.0 / 3.0) * math.pi * radius * radius * radius
+                ball_mass = ball_volume * BALL_DENSITY
                 other_ball, other_x_velocity, other_y_velocity, other_radius = BALLS[other_index]
                 other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
-                other_ball_mass = math.pi * other_radius * other_radius
+                other_ball_volume = (4.0 / 3.0) * math.pi * other_radius * other_radius * other_radius
+                other_ball_mass = other_ball_volume * BALL_DENSITY
 
                 tangent_vector_x = ball_y - other_ball_y
                 tangent_vector_y = -(ball_x - other_ball_x)
+                sqrts += 1
                 tangent_vector_magnitude = euclidean_distance(0, 0, tangent_vector_x, tangent_vector_y)
                 tangent_vector_normalized = [tangent_vector_x / tangent_vector_magnitude, tangent_vector_y / tangent_vector_magnitude]
                 relative_velocity = [x_velocity - other_x_velocity, y_velocity - other_y_velocity]
@@ -254,9 +309,6 @@ def main():
                 dot_product = sum([i*j for (i, j) in zip(tangent_vector_normalized, relative_velocity)])
                 velocity_component_on_tangent = [component * dot_product for component in tangent_vector_normalized]
                 velocity_component_perpendicular_to_tangent = [i-j for (i, j) in zip(relative_velocity, velocity_component_on_tangent)]
-
-                # weight_ratio = ball_mass / other_ball_mass
-                # weight_ratio_inverted = 1.0 / (weight_ratio * FRAMES_PER_SECOND)
 
                 BALLS[index][1] -= velocity_component_perpendicular_to_tangent[0]
                 BALLS[index][2] -= velocity_component_perpendicular_to_tangent[1]
@@ -289,29 +341,13 @@ def main():
 
         if current_time >= next_second:
             canvas.itemconfig(fps_text, text="FPS: {0}".format(frames))
-            print("FPS: {0}".format(frames))
+            canvas.itemconfig(debug_text_1, text="sqrts: {0}".format(sqrts))
             next_second += SECOND_IN_NS
             frames = 0
+            sqrts = 0
 
     root.destroy()
     return 0
-
-
-def move_ball(canvas, ball, x_velocity, y_velocity):
-    canvas.move(ball, x_velocity, -y_velocity)
-
-
-def ball_center(my_tuple):
-    x_left, y_up, x_right, y_down = my_tuple
-    return (x_left + x_right) / 2, MAX_Y - ((y_up + y_down) / 2)
-
-
-def euclidean_distance(x1, y1, x2, y2):
-    return math.sqrt(pow(x2-x1, 2) + pow(y2-y1, 2))
-
-
-def angle_horizon(x1, y1, x2, y2):
-    return math.atan2(y2 - y1, x2 - x1)
 
 
 if __name__ == "__main__":
