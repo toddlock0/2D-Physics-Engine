@@ -14,7 +14,7 @@ SLEEP_TIME_S = 1.0 / (UPDATE_RATE_NS * 10.0)
 
 NUMBER_BALLS = 20
 
-GRAVITY_ACCELERATION = -98.1
+GRAVITY_ACCELERATION = -9.81 * 40.0
 CEILING_SPRING_CONSTANT = 100.0
 GROUND_HEIGHT = 50.0
 CLICK_SPRING_CONSTANT = 1000.0
@@ -107,30 +107,28 @@ def main():
             ball_volume = (4.0 / 3.0) * math.pi * radius * radius * radius
             ball_mass = ball_volume * BALL_DENSITY
 
-            # print("{0}: x {1}, y {2}, x velocity {3}, y velocity {4}".format(index, ball_x, ball_y, x_velocity, y_velocity))
-
             if GRAVITY_ENABLED:
                 y_velocity += GRAVITY_ACCELERATION / FRAMES_PER_SECOND
             if SPRING_ENABLED:
                 spring_distance = euclidean_distance(ball_x, ball_y, SPRING_X, SPRING_Y)
-                spring_acceleration = ((CEILING_SPRING_CONSTANT * spring_distance) / ball_mass)
+                spring_force = ((CEILING_SPRING_CONSTANT * spring_distance) / ball_mass)
                 spring_angle_radians = angle_horizon(ball_x, ball_y, SPRING_X, SPRING_Y)
-                spring_acceleration_x = spring_acceleration * math.cos(spring_angle_radians)
-                spring_acceleration_y = spring_acceleration * math.sin(spring_angle_radians)
+                spring_force_x = spring_force * math.cos(spring_angle_radians)
+                spring_force_y = spring_force * math.sin(spring_angle_radians)
 
-                x_velocity += spring_acceleration_x / FRAMES_PER_SECOND
-                y_velocity += spring_acceleration_y / FRAMES_PER_SECOND
+                x_velocity += spring_force_x / FRAMES_PER_SECOND
+                y_velocity += spring_force_y / FRAMES_PER_SECOND
 
             global Clicked, ClickLocationX, ClickLocationY
             if Clicked:
                 click_distance = euclidean_distance(ball_x, ball_y, ClickLocationX, ClickLocationY)
-                click_acceleration = ((CLICK_SPRING_CONSTANT * click_distance) / ball_mass)
+                click_force = ((CLICK_SPRING_CONSTANT * click_distance) / ball_mass)
                 click_angle_radians = angle_horizon(ClickLocationX, ClickLocationY, ball_x, ball_y)
-                click_acceleration_x = click_acceleration * math.cos(click_angle_radians)
-                click_acceleration_y = click_acceleration * math.sin(click_angle_radians)
+                click_force_x = click_force * math.cos(click_angle_radians)
+                click_force_y = click_force * math.sin(click_angle_radians)
 
-                x_velocity -= click_acceleration_x / FRAMES_PER_SECOND
-                y_velocity -= click_acceleration_y / FRAMES_PER_SECOND
+                x_velocity -= click_force_x / FRAMES_PER_SECOND
+                y_velocity -= click_force_y / FRAMES_PER_SECOND
 
             # Apply friction
             if AIR_FRICTION_ENABLED:
@@ -149,10 +147,45 @@ def main():
         while collision_time < FRAMES_PER_SECOND_INVERTED:
             earliest_collision_time = float('inf')
             earliest_collision_indices = [-1, -1]
+            earliest_collision_type = "None"
 
             # 1) Find time of first collision
             for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
                 ball_x, ball_y = ball_center(canvas.coords(ball))
+
+                # Check for wall collision
+                delta_x = x_velocity * (FRAMES_PER_SECOND_INVERTED - collision_time)
+                delta_y = y_velocity * (FRAMES_PER_SECOND_INVERTED - collision_time)
+
+                proposed_ball_x = ball_x + delta_x
+                proposed_ball_y = ball_y + delta_y
+
+                if MIN_X + radius > proposed_ball_x:
+                    time_of_collision = delta_x / x_velocity
+                    if time_of_collision < earliest_collision_time:
+                        earliest_collision_time = time_of_collision
+                        earliest_collision_indices = [index, -1]
+                        earliest_collision_type = "BOUNDARY_X"
+                elif MAX_X - radius < proposed_ball_x:
+                    time_of_collision = delta_x / x_velocity
+                    if time_of_collision < earliest_collision_time:
+                        earliest_collision_time = time_of_collision
+                        earliest_collision_indices = [index, -1]
+                        earliest_collision_type = "BOUNDARY_X"
+                if MIN_Y + radius > proposed_ball_y:
+                    time_of_collision = delta_y / y_velocity
+                    if time_of_collision < earliest_collision_time:
+                        earliest_collision_time = time_of_collision
+                        earliest_collision_indices = [index, -1]
+                        earliest_collision_type = "BOUNDARY_Y"
+                elif MAX_Y - radius < proposed_ball_y:
+                    time_of_collision = delta_y / y_velocity
+                    if time_of_collision < earliest_collision_time:
+                        earliest_collision_time = time_of_collision
+                        earliest_collision_indices = [index, -1]
+                        earliest_collision_type = "BOUNDARY_Y"
+
+                # Check for ball to ball collision
                 for other_index, (other_ball, other_x_velocity, other_y_velocity, other_radius) in enumerate(BALLS):
                     if index < other_index:
                         other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
@@ -175,43 +208,27 @@ def main():
                         c = p_dot_p + q_dot_q - (2.0 * p_dot_q) - pow(r, 2)
                         v_4ac = 4.0 * a * c
 
-                        # canvas.itemconfig(debug_text_1, text="{0}".format("circle {0}".format(index)))
-
                         # if b^2 < 4ac there is no solution
                         if pow(b, 2) >= v_4ac:
-                            # if t_minus is in interval [0, 1] there will be a collision
                             time_of_collision = ((b * -1.0) - math.sqrt(pow(b, 2) - v_4ac)) / (2.0 * a)
-                            # canvas.itemconfig(debug_text_2, text="toc {0}".format(time_of_collision))
+                            # if time_of_collision is in interval [0, 1] there will be a collision
                             if 0.0 <= time_of_collision <= 1.0:
                                 if time_of_collision < earliest_collision_time:
                                     earliest_collision_time = time_of_collision
                                     earliest_collision_indices = (index, other_index)
+                                    earliest_collision_type = "BALL"
                                     print("Found collision {0} and {1} at time {2}".format(index, other_index, earliest_collision_time))
 
-            if earliest_collision_indices[0] == -1 and earliest_collision_indices[1] == -1:
+            # If no collision, run until end of frame
+            if earliest_collision_type == "None":
                 earliest_collision_time = FRAMES_PER_SECOND_INVERTED - collision_time
+            # there is a collision, run until that collision
             else:
                 earliest_collision_time *= FRAMES_PER_SECOND_INVERTED - collision_time
             collision_time += earliest_collision_time
 
             # 2) Move all balls for time t1
             for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
-                ball_x, ball_y = ball_center(canvas.coords(ball))
-                delta_x = x_velocity * earliest_collision_time
-                delta_y = y_velocity * earliest_collision_time
-
-                proposed_ball_x = ball_x + delta_x
-                proposed_ball_y = ball_y + delta_y
-
-                if MIN_X + radius > proposed_ball_x:
-                    x_velocity *= -0.8
-                elif MAX_X - radius < proposed_ball_x:
-                    x_velocity *= -0.8
-                if MIN_Y + radius > proposed_ball_y:
-                    y_velocity *= -0.8
-                elif MAX_Y - radius < proposed_ball_y:
-                    y_velocity *= -0.8
-
                 move_ball(canvas, ball, x_velocity * earliest_collision_time, y_velocity * earliest_collision_time)
                 BALLS[index][1] = x_velocity
                 BALLS[index][2] = y_velocity
@@ -220,7 +237,7 @@ def main():
             other_index = earliest_collision_indices[1]
 
             # 3) Update velocities for the balls that just collided
-            if index != -1 and other_index != -1:
+            if earliest_collision_type == "BALL":
                 ball, x_velocity, y_velocity, radius = BALLS[index]
                 ball_x, ball_y = ball_center(canvas.coords(ball))
                 ball_mass = math.pi * radius * radius
@@ -253,7 +270,12 @@ def main():
                 print("\tother x velocity += {0}".format(velocity_component_perpendicular_to_tangent[0]))
                 print("\tother y velocity += {0}".format(velocity_component_perpendicular_to_tangent[1]))
 
-                canvas.update()
+            elif earliest_collision_type == "BOUNDARY_X":
+                BALLS[index][1] *= -0.8
+            elif earliest_collision_type == "BOUNDARY_Y":
+                BALLS[index][2] *= -0.8
+
+            canvas.update()
 
         canvas.update()
 
@@ -267,6 +289,7 @@ def main():
 
         if current_time >= next_second:
             canvas.itemconfig(fps_text, text="FPS: {0}".format(frames))
+            print("FPS: {0}".format(frames))
             next_second += SECOND_IN_NS
             frames = 0
 
