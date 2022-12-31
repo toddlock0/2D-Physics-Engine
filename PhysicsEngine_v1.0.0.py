@@ -97,6 +97,7 @@ BALL_STARTS = create_ball_starts()
 BALL_COLORS = ["white", "red", "green", "blue", "yellow", "orange", "purple", "black", "cyan", "magenta"]
 BALL_START_SPEED_MAX = 1.0
 
+
 def click(event):
     global Clicked, ClickLocationX, ClickLocationY
 
@@ -242,34 +243,35 @@ def main():
                         other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
                         combined_radii = radius + other_radius
 
-                        p = (ball_x, ball_y)
-                        d = ((x_velocity - other_x_velocity) * FRAMES_PER_SECOND_INVERTED, (y_velocity - other_y_velocity) * FRAMES_PER_SECOND_INVERTED)
-                        q = (other_ball_x, other_ball_y)
-                        r = combined_radii
+                        if abs(ball_x - other_ball_x) <= combined_radii or abs(ball_y - other_ball_y) <= combined_radii:
+                            p = (ball_x, ball_y)
+                            d = ((x_velocity - other_x_velocity) * FRAMES_PER_SECOND_INVERTED, (y_velocity - other_y_velocity) * FRAMES_PER_SECOND_INVERTED)
+                            q = (other_ball_x, other_ball_y)
+                            r = combined_radii
 
-                        d_dot_d = sum([i * j for (i, j) in zip(d, d)])
-                        d_dot_p = sum([i * j for (i, j) in zip(d, p)])
-                        d_dot_q = sum([i * j for (i, j) in zip(d, q)])
-                        p_dot_p = sum([i * j for (i, j) in zip(p, p)])
-                        q_dot_q = sum([i * j for (i, j) in zip(q, q)])
-                        p_dot_q = sum([i * j for (i, j) in zip(p, q)])
+                            d_dot_d = sum([i * j for (i, j) in zip(d, d)])
+                            d_dot_p = sum([i * j for (i, j) in zip(d, p)])
+                            d_dot_q = sum([i * j for (i, j) in zip(d, q)])
+                            p_dot_p = sum([i * j for (i, j) in zip(p, p)])
+                            q_dot_q = sum([i * j for (i, j) in zip(q, q)])
+                            p_dot_q = sum([i * j for (i, j) in zip(p, q)])
 
-                        a = d_dot_d
-                        b = 2.0 * (d_dot_p - d_dot_q)
-                        c = p_dot_p + q_dot_q - (2.0 * p_dot_q) - pow(r, 2)
-                        v_4ac = 4.0 * a * c
+                            a = d_dot_d
+                            b = 2.0 * (d_dot_p - d_dot_q)
+                            c = p_dot_p + q_dot_q - (2.0 * p_dot_q) - pow(r, 2)
+                            v_4ac = 4.0 * a * c
 
-                        # if b^2 < 4ac there is no solution
-                        if pow(b, 2) >= v_4ac:
-                            sqrts += 1
-                            time_of_collision = ((b * -1.0) - math.sqrt(pow(b, 2) - v_4ac)) / (2.0 * a)
-                            # if time_of_collision is in interval [0, 1] there will be a collision
-                            if 0.0 <= time_of_collision <= 1.0:
-                                if time_of_collision < earliest_collision_time:
-                                    earliest_collision_time = time_of_collision
-                                    earliest_collision_indices = (index, other_index)
-                                    earliest_collision_type = "BALL"
-                                    print("Found collision {0} and {1} at time {2}".format(index, other_index, earliest_collision_time))
+                            # if b^2 < 4ac there is no solution
+                            if pow(b, 2) >= v_4ac:
+                                sqrts += 1
+                                time_of_collision = ((b * -1.0) - math.sqrt(pow(b, 2) - v_4ac)) / (2.0 * a)
+                                # if time_of_collision is in interval [0, 1] there will be a collision
+                                if 0.0 <= time_of_collision <= 1.0:
+                                    if time_of_collision < earliest_collision_time:
+                                        earliest_collision_time = time_of_collision
+                                        earliest_collision_indices = (index, other_index)
+                                        earliest_collision_type = "BALL"
+                                        # print("Found collision {0} and {1} at time {2}".format(index, other_index, earliest_collision_time))
 
             # If no collision, run until end of frame
             if earliest_collision_type == "None":
@@ -313,21 +315,19 @@ def main():
                 BALLS[index][1] -= velocity_component_perpendicular_to_tangent[0]
                 BALLS[index][2] -= velocity_component_perpendicular_to_tangent[1]
 
-                print("\tx velocity -= {0}".format(velocity_component_perpendicular_to_tangent[0]))
-                print("\ty velocity -= {0}".format(velocity_component_perpendicular_to_tangent[1]))
+                #print("\tx velocity -= {0}".format(velocity_component_perpendicular_to_tangent[0]))
+                #print("\ty velocity -= {0}".format(velocity_component_perpendicular_to_tangent[1]))
 
                 BALLS[other_index][1] += velocity_component_perpendicular_to_tangent[0]
                 BALLS[other_index][2] += velocity_component_perpendicular_to_tangent[1]
 
-                print("\tother x velocity += {0}".format(velocity_component_perpendicular_to_tangent[0]))
-                print("\tother y velocity += {0}".format(velocity_component_perpendicular_to_tangent[1]))
+                #print("\tother x velocity += {0}".format(velocity_component_perpendicular_to_tangent[0]))
+                #print("\tother y velocity += {0}".format(velocity_component_perpendicular_to_tangent[1]))
 
             elif earliest_collision_type == "BOUNDARY_X":
                 BALLS[index][1] *= -0.8
             elif earliest_collision_type == "BOUNDARY_Y":
                 BALLS[index][2] *= -0.8
-
-            canvas.update()
 
         canvas.update()
 
