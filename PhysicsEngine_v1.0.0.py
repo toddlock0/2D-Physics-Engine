@@ -2,6 +2,7 @@ import tkinter
 import time
 import math
 import random
+import QuadTree
 
 # 1 seconds in nanoseconds
 SECOND_IN_NS = 1000000000
@@ -32,7 +33,9 @@ MAX_X = 1200.0
 MIN_Y = 0.0
 MAX_Y = 800.0
 
-NUMBER_BALLS = 50
+NUMBER_BALLS = 25
+
+QUADTREE_CAPACITY = 4
 
 # globals
 run = True
@@ -237,41 +240,21 @@ def main():
                         earliest_collision_indices = [index, -1]
                         earliest_collision_type = "BOUNDARY_Y"
 
-                # Check for ball to ball collision
+                boundary = QuadTree.Boundary(MAX_X / 2.0, MAX_Y / 2.0, MAX_X, MAX_Y)
+                quadtree = QuadTree.QuadTree(boundary, QUADTREE_CAPACITY)
                 for other_index, (other_ball, other_x_velocity, other_y_velocity, other_radius) in enumerate(BALLS):
-                    if index < other_index:
+                    if index != other_index:
                         other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
-                        combined_radii = radius + other_radius
+                        other_point = QuadTree.Point(other_index, other_ball_x, other_ball_y,
+                                                     other_x_velocity, other_y_velocity, other_radius)
+                        quadtree.insert(other_point)
 
-                        if abs(ball_x - other_ball_x) <= combined_radii or abs(ball_y - other_ball_y) <= combined_radii:
-                            p = (ball_x, ball_y)
-                            d = ((x_velocity - other_x_velocity) * FRAMES_PER_SECOND_INVERTED, (y_velocity - other_y_velocity) * FRAMES_PER_SECOND_INVERTED)
-                            q = (other_ball_x, other_ball_y)
-                            r = combined_radii
-
-                            d_dot_d = sum([i * j for (i, j) in zip(d, d)])
-                            d_dot_p = sum([i * j for (i, j) in zip(d, p)])
-                            d_dot_q = sum([i * j for (i, j) in zip(d, q)])
-                            p_dot_p = sum([i * j for (i, j) in zip(p, p)])
-                            q_dot_q = sum([i * j for (i, j) in zip(q, q)])
-                            p_dot_q = sum([i * j for (i, j) in zip(p, q)])
-
-                            a = d_dot_d
-                            b = 2.0 * (d_dot_p - d_dot_q)
-                            c = p_dot_p + q_dot_q - (2.0 * p_dot_q) - pow(r, 2)
-                            v_4ac = 4.0 * a * c
-
-                            # if b^2 < 4ac there is no solution
-                            if pow(b, 2) >= v_4ac:
-                                sqrts += 1
-                                time_of_collision = ((b * -1.0) - math.sqrt(pow(b, 2) - v_4ac)) / (2.0 * a)
-                                # if time_of_collision is in interval [0, 1] there will be a collision
-                                if 0.0 <= time_of_collision <= 1.0:
-                                    if time_of_collision < earliest_collision_time:
-                                        earliest_collision_time = time_of_collision
-                                        earliest_collision_indices = (index, other_index)
-                                        earliest_collision_type = "BALL"
-                                        # print("Found collision {0} and {1} at time {2}".format(index, other_index, earliest_collision_time))
+                point = QuadTree.Point(index, ball_x, ball_y, x_velocity, y_velocity, radius)
+                time_of_collision, collision_index = quadtree.check_collision(point, FRAMES_PER_SECOND_INVERTED)
+                if time_of_collision < earliest_collision_time:
+                    earliest_collision_time = time_of_collision
+                    earliest_collision_indices = [index, collision_index]
+                    earliest_collision_type = "BALL"
 
             # If no collision, run until end of frame
             if earliest_collision_type == "None":
@@ -341,7 +324,7 @@ def main():
 
         if current_time >= next_second:
             canvas.itemconfig(fps_text, text="FPS: {0}".format(frames))
-            canvas.itemconfig(debug_text_1, text="sqrts: {0}".format(sqrts))
+            # canvas.itemconfig(debug_text_1, text="sqrts: {0}".format(sqrts))
             next_second += SECOND_IN_NS
             frames = 0
             sqrts = 0
