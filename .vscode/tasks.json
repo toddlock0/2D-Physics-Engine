@@ -1,0 +1,42 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compile Physics Engine",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "-m",
+                "py_compile",
+                "${workspaceFolder}/PhysicsEngine_v1.0.0.py"
+            ],
+            "problemMatcher": {
+                "owner": "python",
+                "fileLocation": [
+                    "absolute"
+                ],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "message": 4
+                }
+            }
+        },
+        {
+            "label": "Run Physics Engine",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/PhysicsEngine_v1.0.0.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Compile Physics Engine",
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        }
+    ]
+}
