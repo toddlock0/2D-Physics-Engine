@@ -64,7 +64,7 @@ def create_ball_starts():
         x, y, radius = create_ball_start()
         collision = True
         while collision:
-            collision = check_collision(x, y, radius, ball_starts)
+            collision = check_startup_collision(x, y, radius, ball_starts)
             if collision:
                 x, y, radius = create_ball_start()
 
@@ -74,7 +74,7 @@ def create_ball_starts():
     return ball_starts
 
 
-def check_collision(ball_x, ball_y, ball_radius, ball_starts):
+def check_startup_collision(x, y, radius, ball_starts):
     collision = False
     for index, (other_x, other_y, other_radius) in enumerate(ball_starts):
         distance = euclidean_distance(ball_x, ball_y, other_x, other_y)
