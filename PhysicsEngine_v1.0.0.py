@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import tkinter
 import time
 import math
@@ -33,6 +34,9 @@ MIN_Y = 0.0
 MAX_Y = 800.0
 
 NUMBER_BALLS = 50
+
+NUMBER_COLLISION_THREADS = 4
+COLLISION_BLOCK_SIZE = math.ceil(NUMBER_BALLS / NUMBER_COLLISION_THREADS)
 
 # globals
 run = True
@@ -122,6 +126,59 @@ def check_collision(earliest_collision_time, ball_x, ball_y, x_velocity, y_veloc
 
     return float('inf'), [-1, -1], "None"
 
+def check_collision_block(balls_snapshot, start_index, end_index, collision_time):
+    earliest_collision_time = float('inf')
+    earliest_collision_indices = [-1, -1]
+    earliest_collision_type = "None"
+
+    # 1) Find time of first collision
+    for index in range(start_index, end_index):
+        ball_x, ball_y, x_velocity, y_velocity, radius = balls_snapshot[index]
+
+        # Check for wall collision
+        delta_x = x_velocity * (FRAMES_PER_SECOND_INVERTED - collision_time)
+        delta_y = y_velocity * (FRAMES_PER_SECOND_INVERTED - collision_time)
+
+        proposed_ball_x = ball_x + delta_x
+        proposed_ball_y = ball_y + delta_y
+
+        if MIN_X + radius > proposed_ball_x:
+            time_of_collision = delta_x / x_velocity
+            if time_of_collision < earliest_collision_time:
+                earliest_collision_time = time_of_collision
+                earliest_collision_indices = [index, -1]
+                earliest_collision_type = "BOUNDARY_X"
+        elif MAX_X - radius < proposed_ball_x:
+            time_of_collision = delta_x / x_velocity
+            if time_of_collision < earliest_collision_time:
+                earliest_collision_time = time_of_collision
+                earliest_collision_indices = [index, -1]
+                earliest_collision_type = "BOUNDARY_X"
+        if MIN_Y + radius > proposed_ball_y:
+            time_of_collision = delta_y / y_velocity
+            if time_of_collision < earliest_collision_time:
+                earliest_collision_time = time_of_collision
+                earliest_collision_indices = [index, -1]
+                earliest_collision_type = "BOUNDARY_Y"
+        elif MAX_Y - radius < proposed_ball_y:
+            time_of_collision = delta_y / y_velocity
+            if time_of_collision < earliest_collision_time:
+                earliest_collision_time = time_of_collision
+                earliest_collision_indices = [index, -1]
+                earliest_collision_type = "BOUNDARY_Y"
+
+        # Check for ball to ball collision
+        for other_index, (other_ball_x, other_ball_y, other_x_velocity, other_y_velocity, other_radius) in enumerate(balls_snapshot):
+            if index < other_index:
+                time_of_collision, collision_indices, collision_type = \
+                    check_collision(earliest_collision_time, ball_x, ball_y, x_velocity, y_velocity, radius, index,
+                                other_ball_x, other_ball_y, other_x_velocity, other_y_velocity, other_radius, other_index)
+                if time_of_collision < earliest_collision_time:
+                    earliest_collision_time = time_of_collision
+                    earliest_collision_indices = collision_indices
+                    earliest_collision_type = collision_type
+
+    return earliest_collision_time, earliest_collision_indices, earliest_collision_type
 
 BALLS = []
 BALL_MIN_RADIUS = 10
@@ -182,6 +239,8 @@ def main():
     next_second = current_time + SECOND_IN_NS
     frames = 0
 
+    executor = ThreadPoolExecutor(max_workers=NUMBER_COLLISION_THREADS)
+
     while run:
         # Update ball velocities for gravity, springs, and friction
         for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
@@ -231,53 +290,39 @@ def main():
             earliest_collision_indices = [-1, -1]
             earliest_collision_type = "None"
 
-            # 1) Find time of first collision
-            for index, (ball, x_velocity, y_velocity, radius) in enumerate(BALLS):
+            # Create immutable snapshot of balls for collision detection threads
+            balls_snapshot = []
+            for ball, x_velocity, y_velocity, radius in BALLS:
                 ball_x, ball_y = ball_center(canvas.coords(ball))
 
-                # Check for wall collision
-                delta_x = x_velocity * (FRAMES_PER_SECOND_INVERTED - collision_time)
-                delta_y = y_velocity * (FRAMES_PER_SECOND_INVERTED - collision_time)
+                balls_snapshot.append((
+                    ball_x,
+                    ball_y,
+                    x_velocity,
+                    y_velocity,
+                    radius
+                ))
 
-                proposed_ball_x = ball_x + delta_x
-                proposed_ball_y = ball_y + delta_y
+            # Split the balls into blocks for each thread to check for collisions
+            collision_blocks = []
+            for i in range(NUMBER_COLLISION_THREADS):
+                start_index = i * COLLISION_BLOCK_SIZE
+                end_index = start_index + COLLISION_BLOCK_SIZE if start_index + COLLISION_BLOCK_SIZE < NUMBER_BALLS else NUMBER_BALLS
+                collision_blocks.append((start_index, end_index))
 
-                if MIN_X + radius > proposed_ball_x:
-                    time_of_collision = delta_x / x_velocity
-                    if time_of_collision < earliest_collision_time:
-                        earliest_collision_time = time_of_collision
-                        earliest_collision_indices = [index, -1]
-                        earliest_collision_type = "BOUNDARY_X"
-                elif MAX_X - radius < proposed_ball_x:
-                    time_of_collision = delta_x / x_velocity
-                    if time_of_collision < earliest_collision_time:
-                        earliest_collision_time = time_of_collision
-                        earliest_collision_indices = [index, -1]
-                        earliest_collision_type = "BOUNDARY_X"
-                if MIN_Y + radius > proposed_ball_y:
-                    time_of_collision = delta_y / y_velocity
-                    if time_of_collision < earliest_collision_time:
-                        earliest_collision_time = time_of_collision
-                        earliest_collision_indices = [index, -1]
-                        earliest_collision_type = "BOUNDARY_Y"
-                elif MAX_Y - radius < proposed_ball_y:
-                    time_of_collision = delta_y / y_velocity
-                    if time_of_collision < earliest_collision_time:
-                        earliest_collision_time = time_of_collision
-                        earliest_collision_indices = [index, -1]
-                        earliest_collision_type = "BOUNDARY_Y"
+            futures = [
+                executor.submit(check_collision_block, balls_snapshot, collision_block[0], collision_block[1], collision_time)
+                for collision_block in collision_blocks
+            ]
 
-                # Check for ball to ball collision
-                for other_index, (other_ball, other_x_velocity, other_y_velocity, other_radius) in enumerate(BALLS):
-                    if index < other_index:
-                        other_ball_x, other_ball_y = ball_center(canvas.coords(other_ball))
-                        time_of_collision, collision_indices, collision_type = \
-                            check_collision(earliest_collision_time, ball_x, ball_y, x_velocity, y_velocity, radius, index,
-                                        other_ball_x, other_ball_y, other_x_velocity, other_y_velocity, other_radius, other_index)
-                        if time_of_collision < earliest_collision_time:
-                            earliest_collision_time = time_of_collision
-                            earliest_collision_indices = collision_indices
-                            earliest_collision_type = collision_type
+            # Calling result() waits for each task to finish.
+            results = [future.result() for future in futures]
+
+            for (thread_earliest_collision_time, thread_collision_indices, thread_collision_type) in results:
+                if thread_earliest_collision_time < earliest_collision_time:
+                    earliest_collision_time = thread_earliest_collision_time
+                    earliest_collision_indices = thread_collision_indices
+                    earliest_collision_type = thread_collision_type
 
             # If no collision, run until end of frame
             if earliest_collision_type == "None":
