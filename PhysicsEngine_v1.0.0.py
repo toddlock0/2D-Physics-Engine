@@ -38,6 +38,11 @@ NUMBER_BALLS = 50
 NUMBER_COLLISION_THREADS = 4
 COLLISION_BLOCK_SIZE = math.ceil(NUMBER_BALLS / NUMBER_COLLISION_THREADS)
 
+NUMBER_X_SEARCH_SECTORS = 4
+NUMBER_X_SECTORS_PER_THREAD = math.ceil(NUMBER_X_SEARCH_SECTORS / NUMBER_COLLISION_THREADS)
+NUMBER_Y_SEARCH_SECTORS = 4
+NUMBER_Y_SECTORS_PER_THREAD = math.ceil(NUMBER_Y_SEARCH_SECTORS / NUMBER_COLLISION_THREADS)
+
 # globals
 run = True
 Clicked = False
@@ -126,13 +131,13 @@ def check_collision(earliest_collision_time, ball_x, ball_y, x_velocity, y_veloc
 
     return float('inf'), [-1, -1], "None"
 
-def check_collision_block(balls_snapshot, start_index, end_index, collision_time):
+def check_collision_sectors(balls_snapshot, sector_balls_list, collision_time):
     earliest_collision_time = float('inf')
     earliest_collision_indices = [-1, -1]
     earliest_collision_type = "None"
 
     # 1) Find time of first collision
-    for index in range(start_index, end_index):
+    for index in sector_balls_list:
         ball_x, ball_y, x_velocity, y_velocity, radius = balls_snapshot[index]
 
         # Check for wall collision
@@ -168,7 +173,8 @@ def check_collision_block(balls_snapshot, start_index, end_index, collision_time
                 earliest_collision_type = "BOUNDARY_Y"
 
         # Check for ball to ball collision
-        for other_index, (other_ball_x, other_ball_y, other_x_velocity, other_y_velocity, other_radius) in enumerate(balls_snapshot):
+        for other_index in sector_balls_list:
+            other_ball_x, other_ball_y, other_x_velocity, other_y_velocity, other_radius = balls_snapshot[other_index]
             if index < other_index:
                 time_of_collision, collision_indices, collision_type = \
                     check_collision(earliest_collision_time, ball_x, ball_y, x_velocity, y_velocity, radius, index,
@@ -183,6 +189,7 @@ def check_collision_block(balls_snapshot, start_index, end_index, collision_time
 BALLS = []
 BALL_MIN_RADIUS = 10
 BALL_MAX_RADIUS = 40
+BALL_COMBINED_MAX_RADII = BALL_MAX_RADIUS * 2
 BALL_STARTS = create_ball_starts()
 BALL_COLORS = ["white", "red", "green", "blue", "yellow", "orange", "purple", "black", "cyan", "magenta"]
 BALL_START_SPEED_MAX = 1.0
@@ -303,16 +310,43 @@ def main():
                     radius
                 ))
 
-            # Split the balls into blocks for each thread to check for collisions
-            collision_blocks = []
-            for i in range(NUMBER_COLLISION_THREADS):
-                start_index = i * COLLISION_BLOCK_SIZE
-                end_index = start_index + COLLISION_BLOCK_SIZE if start_index + COLLISION_BLOCK_SIZE < NUMBER_BALLS else NUMBER_BALLS
-                collision_blocks.append((start_index, end_index))
+            sector_map = [[[] for _ in range(NUMBER_Y_SEARCH_SECTORS)] for _ in range(NUMBER_X_SEARCH_SECTORS)];
+            # Create search sector map of all potential collisions per sector
+            for x_sector in range(NUMBER_X_SEARCH_SECTORS):
+                sector_x_min = (MAX_X / NUMBER_X_SEARCH_SECTORS) * x_sector
+                sector_x_max = (MAX_X / NUMBER_X_SEARCH_SECTORS) * (x_sector + 1)
+
+                for y_sector in range(NUMBER_Y_SEARCH_SECTORS):
+                    sector_y_min = (MAX_Y / NUMBER_Y_SEARCH_SECTORS) * y_sector
+                    sector_y_max = (MAX_Y / NUMBER_Y_SEARCH_SECTORS) * (y_sector + 1)
+
+                    balls_in_sector = []
+
+                    for index, (ball_x, ball_y, x_velocity, y_velocity, radius) in enumerate(balls_snapshot):
+                        if sector_x_min - BALL_COMBINED_MAX_RADII <= ball_x <= sector_x_max + BALL_COMBINED_MAX_RADII \
+                            and sector_y_min - BALL_COMBINED_MAX_RADII <= ball_y <= sector_y_max + BALL_COMBINED_MAX_RADII:
+                            balls_in_sector.append(index)
+
+                    sector_map[x_sector][y_sector] = tuple(balls_in_sector)
+
+            # Create mapping of all balls the could potentially collide with each sector
+            # Assign each sector to a thread in a round-robin fashion
+            thread_index = 0
+            thread_collision_sector_lists = [[] for _ in range(NUMBER_COLLISION_THREADS)]
+            for sector_x in range(0, NUMBER_X_SEARCH_SECTORS):
+                for sector_y in range(0, NUMBER_Y_SEARCH_SECTORS):
+                    thread_collision_sector_lists[thread_index].append((sector_x, sector_y))
+                    thread_index = (thread_index + 1) % NUMBER_COLLISION_THREADS
+
+            # Combine all balls that could potentially collide for each thread's sectors into a single list of indices
+            thread_collision_index_list = [[] for _ in range(NUMBER_COLLISION_THREADS)]
+            for thread_index in range(NUMBER_COLLISION_THREADS):
+                for sector_x, sector_y in thread_collision_sector_lists[thread_index]:
+                    thread_collision_index_list[thread_index].extend(sector_map[sector_x][sector_y])
 
             futures = [
-                executor.submit(check_collision_block, balls_snapshot, collision_block[0], collision_block[1], collision_time)
-                for collision_block in collision_blocks
+                executor.submit(check_collision_sectors, balls_snapshot, thread_collision_index_list[thread_index], collision_time)
+                for thread_index in range(NUMBER_COLLISION_THREADS)
             ]
 
             # Calling result() waits for each task to finish.
